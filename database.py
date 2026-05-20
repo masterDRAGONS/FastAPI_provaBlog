@@ -1,13 +1,17 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+# URL di connessione al database SQLite locale.
 SQLALCHEMY_DATABASE_URL = "sqlite:///./blog.db"
 
+# Crea il motore di connessione a SQLite.
+# check_same_thread=False è necessario solo per SQLite quando l'app usa più thread.
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},#serve sono in sqlite, per altri db non serve perché non è multithread
 )
 
+# SessionLocal è una factory di sessioni che useremo per aprire/chiudere il DB.
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):
@@ -15,11 +19,17 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    # Generatore che fornisce una sessione DB per ogni richiesta FastAPI.
+    # La sessione viene chiusa automaticamente al termine del blocco with.
     with SessionLocal() as db:
         yield db
 
 
+# Questa sezione contiene i modelli SQLAlchemy. In un progetto ordinato,
+# sarebbe preferibile separarli in un file dedicated models.py.
 ## models.py
+# Questa sezione definisce i modelli del database.
+# Idealmente andrebbe spostata in un file separato models.py per evitare confusione.
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -42,6 +52,7 @@ class User(Base):
         default=None,
     )
 
+    # Relazione uno-a-molti: un utente può avere più post.
     posts: Mapped[list[Post]] = relationship(back_populates="author")
 
     @property

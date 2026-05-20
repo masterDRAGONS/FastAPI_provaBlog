@@ -1,3 +1,4 @@
+# Import delle classi FastAPI e degli helper per gestire richieste, errori e template.
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -5,14 +6,20 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+# Import dei modelli Pydantic usati per validare la richiesta e formare la risposta JSON.
 from schemas import PostCreate,PostResponse
 
+# Creazione dell'app FastAPI.
 app = FastAPI()
 
+# Monta la cartella statica in modo che CSS, JS e immagini siano serviti correttamente.
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Configurazione dei template Jinja2 per renderizzare le pagine HTML.
 templates = Jinja2Templates(directory="templates")
 
+# Archivio temporaneo in memoria dei post di esempio.
+# In un'app reale verrebbero salvati in un database.
 posts: list[dict] = [
     {
         "id": 1,
@@ -31,6 +38,7 @@ posts: list[dict] = [
 ]
 
 
+# Pagina principale che mostra l'elenco dei post in HTML.
 @app.get("/", include_in_schema=False, name="home")
 @app.get("/posts", include_in_schema=False, name="posts")
 def home(request: Request):
@@ -40,6 +48,7 @@ def home(request: Request):
         {"posts": posts, "title": "Home"},
     )
 
+# Pagina HTML che mostra il singolo post identificato da post_id.
 @app.get("/posts/{post_id}", include_in_schema=False)
 def post_page(request: Request, post_id: int):
     for post in posts:
@@ -53,10 +62,12 @@ def post_page(request: Request, post_id: int):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 @app.get("/api/posts", response_model=list[PostResponse])
+# Endpoint API che restituisce tutti i post in formato JSON.
 def get_posts():
     return posts
 
 @app.get("/api/posts/{post_id}",response_model=PostResponse)
+# Endpoint API che restituisce un singolo post per ID.
 def get_post(post_id: int):
     for post in posts:
         if post.get("id") == post_id:
@@ -68,6 +79,7 @@ def get_post(post_id: int):
     response_model=PostResponse,
     status_code=status.HTTP_201_CREATED,
 )
+# Endpoint API per creare un nuovo post. Usa il modello PostCreate per validare i dati in ingresso.
 def create_post(post: PostCreate):
     new_id = max(p["id"] for p in posts) + 1 if posts else 1
     new_post = {
@@ -81,6 +93,7 @@ def create_post(post: PostCreate):
     return new_post
 
 @app.exception_handler(StarletteHTTPException)
+# Gestore globale per errori HTTP sia per le pagine HTML che per l'API.
 def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
     message = (
         exception.detail
@@ -105,6 +118,7 @@ def general_http_exception_handler(request: Request, exception: StarletteHTTPExc
     )
 
 @app.exception_handler(RequestValidationError)
+# Gestore per errori di validazione dati: restituisce JSON per /api e una pagina di errore per il browser.
 def validation_exception_handler(request: Request, exception: RequestValidationError):
     if request.url.path.startswith("/api"):
         return JSONResponse(
