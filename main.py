@@ -1,5 +1,11 @@
+"""
+Modulo principale dell'applicazione FastAPI.
+Contiene la creazione dell'app, il montaggio delle risorse statiche,
+la configurazione dei template e gli endpoint HTTP/REST.
+"""
+
 # Import delle classi FastAPI e degli helper per gestire richieste, errori e template.
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,7 +13,16 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Import dei modelli Pydantic usati per validare la richiesta e formare la risposta JSON.
-from schemas import PostCreate,PostResponse
+from schemas import PostCreate, PostResponse, UserCreate,UserResponse
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from typing import Annotated
+
+import models
+from database import Base,engine, get_db
+
+Base.metadata.create_all(bind=engine)
 
 # Creazione dell'app FastAPI.
 app = FastAPI()
@@ -15,81 +30,161 @@ app = FastAPI()
 # Monta la cartella statica in modo che CSS, JS e immagini siano serviti correttamente.
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+app.mount("/media", StaticFiles(directory="media"), name="media")
+
 # Configurazione dei template Jinja2 per renderizzare le pagine HTML.
 templates = Jinja2Templates(directory="templates")
 
-# Archivio temporaneo in memoria dei post di esempio.
-# In un'app reale verrebbero salvati in un database.
-posts: list[dict] = [
-    {
-        "id": 1,
-        "author": "Corey Schafer",
-        "title": "FastAPI is Awesome",
-        "content": "This framework is really easy to use and super fast.",
-        "date_posted": "April 20, 2025",
-    },
-    {
-        "id": 2,
-        "author": "Jane Doe",
-        "title": "Python is Great for Web Development",
-        "content": "Python is a great language for web development, and FastAPI makes it even better.",
-        "date_posted": "April 21, 2025",
-    },
-]
 
 
 # Pagina principale che mostra l'elenco dei post in HTML.
 @app.get("/", include_in_schema=False, name="home")
 @app.get("/posts", include_in_schema=False, name="posts")
-def home(request: Request):
+def home(request: Request, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post))
+    posts = result.scalars().all()
     return templates.TemplateResponse(
         request,
         "home.html",
         {"posts": posts, "title": "Home"},
     )
 
+
 # Pagina HTML che mostra il singolo post identificato da post_id.
 @app.get("/posts/{post_id}", include_in_schema=False)
-def post_page(request: Request, post_id: int):
-    for post in posts:
-        if post.get("id") == post_id:
-            title= post['title'][:50]
-            return templates.TemplateResponse(
-                request,
-                "post.html",
-                {"post": post, "title": "Home"},
-            )
+def post_page(request: Request, post_id: int, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    if post:
+        title = post.title[:50]
+        return templates.TemplateResponse(
+            request,
+            "post.html",
+            {"post": post, "title": title},
+        )
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
-@app.get("/api/posts", response_model=list[PostResponse])
-# Endpoint API che restituisce tutti i post in formato JSON.
-def get_posts():
+@app.get("/users/{user_id}/posts", include_in_schema=False, name="user_posts")
+def user_posts_page(
+    request: Request,
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    result = db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    result = db.execute(select(models.Post).where(models.Post.user_id == user_id))
+    posts = result.scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "user_posts.html",
+        {"posts": posts, "user": user, "title": f"{user.username}'s Posts"},
+    )
+
+
+@app.post(
+    "/api/Users",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_user(user: UserCreate,db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.User).where(models.User.username == user.username))
+    existing_user = result.scalars().first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists. Please choose a different username.",
+        )
+    
+    result = db.execute(select(models.User).where(models.User.email == user.email))
+    existing_user = result.scalars().first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already exists. Please choose a different email.",
+        )
+    new_user = models.User(username=user.username, email=user.email)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+@app.get("/api/Users/{user_id}", response_model=UserResponse)
+def get_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+@app.get("/api/Users", response_model=list[UserResponse])
+def get_users(db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.User))
+    users = result.scalars().all()
+    return users
+
+@app.get("/api/users/{user_id}/posts", response_model=list[PostResponse])
+def get_user_posts(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    result = db.execute(select(models.Post).where(models.Post.user_id == user_id))
+    posts = result.scalars().all()
     return posts
 
-@app.get("/api/posts/{post_id}",response_model=PostResponse)
+
+# Endpoint API che restituisce tutti i post in formato JSON.
+
+@app.get("/api/posts", response_model=list[PostResponse])
+def get_posts(db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post))
+    posts = result.scalars().all()
+    return posts
+
+
+
 # Endpoint API che restituisce un singolo post per ID.
-def get_post(post_id: int):
-    for post in posts:
-        if post.get("id") == post_id:
-            return post
+@app.get("/api/posts/{post_id}", response_model=PostResponse)
+def get_post(post_id: int, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    if post:
+        return post
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
+
+# Endpoint API per creare un nuovo post. Usa il modello PostCreate per validare i dati in ingresso.
 @app.post(
     "/api/posts",
     response_model=PostResponse,
     status_code=status.HTTP_201_CREATED,
 )
-# Endpoint API per creare un nuovo post. Usa il modello PostCreate per validare i dati in ingresso.
-def create_post(post: PostCreate):
-    new_id = max(p["id"] for p in posts) + 1 if posts else 1
-    new_post = {
-        "id": new_id,
-        "author": post.author,
-        "title": post.title,
-        "content": post.content,
-        "date_posted": "April 23, 2025",
-    }
-    posts.append(new_post)
+def create_post(post: PostCreate, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.User).where(models.User.id == post.user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    new_post = models.Post(
+        title=post.title,
+        content=post.content,
+        user_id=post.user_id,
+    )
+    db.add(new_post)
+    db.commit()
+    db.refresh(new_post)
     return new_post
 
 @app.exception_handler(StarletteHTTPException)
