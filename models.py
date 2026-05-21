@@ -1,7 +1,7 @@
-from __future__ import annotations
-
 # Modelli SQLAlchemy dell'applicazione.
 # Definiscono le tabelle `users` e `posts` e le relazioni tra di esse.
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
@@ -16,6 +16,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(200), unique=False, nullable=False)
     image_file: Mapped[str | None] = mapped_column(
         String(200),
         nullable=True,
