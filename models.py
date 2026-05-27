@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from config import settings
 from database import Base
 
 
@@ -35,9 +36,13 @@ class User(Base):
 
     @property
     def image_path(self) -> str:
-        if self.image_file:
-            return f"/media/profile_pics/{self.image_file}"
-        return "/static/profile_pics/default.jpg"
+        if not self.image_file:
+            return "/static/profile_pics/default.jpg"
+
+        if settings.storage_type == "azure":
+            return f"/images/{self.image_file}"
+
+        return f"/media/profile_pics/{self.image_file}"
 
 
 class Post(Base):

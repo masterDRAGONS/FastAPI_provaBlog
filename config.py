@@ -25,4 +25,9 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:8000"
 
+    storage_type: str = "local"
+    azure_storage_account_name: str | None = None
+    azure_storage_account_key: str | None = None
+    azure_storage_container_name: str = "profile-pictures"
+
 settings=Settings() #loaded from the .env file
